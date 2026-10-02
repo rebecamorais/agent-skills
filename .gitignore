@@ -1,0 +1,4 @@
+# Messages read by sqs-peek-messages may contain personal data
+sqs-messages/
+
+__pycache__/

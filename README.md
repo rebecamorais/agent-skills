@@ -26,7 +26,23 @@ The rest of the file has the instructions the agent follows once the skill is ac
 
 | Skill | Description |
 | --- | --- |
-| _None yet_ | |
+| [sqs-peek-messages](skills/sqs-peek-messages/) | Read messages from an AWS SQS queue (DLQ or not) without consuming them |
+
+### sqs-peek-messages
+
+Reads messages from any AWS SQS queue and saves one `<MessageId>.json` per message, without deleting anything. Before reading, it checks the queue and stops to ask for confirmation if reading could move messages to the DLQ, delay a live consumer or lock a FIFO group.
+
+**Use when:**
+
+- You want to know what is in a DLQ, or why messages landed there
+- You need to download or inspect messages from a queue without consuming them
+- Another skill or project tool needs to read a queue safely
+
+**Output:** a `sqs-messages/<queue>/` folder (which must be git-ignored) with one JSON file per message; the agent reads them and summarizes the errors with their `MessageId`s.
+
+**Requirements:** Python 3.10+, AWS CLI v2 and a profile with `sqs:GetQueueUrl`, `sqs:GetQueueAttributes` and `sqs:ReceiveMessage`.
+
+More in [its docs](skills/sqs-peek-messages/docs.md).
 
 <!--
 Per skill, add a table row above and a section like this one:
