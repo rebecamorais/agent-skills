@@ -1,0 +1,17 @@
+{
+  "skill_name": "my-skill-name",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "A typical request, written the way a user would say it.",
+      "expected_output": "What the agent must do (commands, output) and must not do.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "A request where the skill must refuse or ask first (destructive action, risky input).",
+      "expected_output": "The agent refuses or asks for confirmation and explains why.",
+      "files": []
+    }
+  ]
+}
