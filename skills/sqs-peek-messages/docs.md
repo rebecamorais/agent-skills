@@ -1,6 +1,6 @@
 # sqs-peek-messages
 
-A skill for reading messages from an AWS SQS queue (a DLQ or any other queue) **without consuming them**. It saves one `<MessageId>.json` per message, and the agent, or your project's own analysis, reads those files to explain what is in the queue.
+A skill for reading messages from an AWS SQS queue (standard or FIFO, a DLQ or any other queue) **without consuming them**. It saves one `<MessageId>.json` per message, and the agent, or your project's own analysis, reads those files to explain what is in the queue.
 
 It never deletes, purges or redrives. Cleaning up is your call, in the AWS console.
 
@@ -9,7 +9,7 @@ The skill follows the [Agent Skills](https://agentskills.io) format, so it works
 ## Requirements
 
 - Python 3.10+ (standard library only) and [AWS CLI v2](https://docs.aws.amazon.com/cli/)
-- An authenticated AWS CLI profile with `sqs:GetQueueUrl`, `sqs:GetQueueAttributes` and `sqs:ReceiveMessage`
+- An authenticated AWS CLI profile with `sqs:GetQueueUrl`, `sqs:GetQueueAttributes` and `sqs:ReceiveMessage` (plus `sqs:ListDeadLetterSourceQueues` for FIFO queues)
 
 ## Installation
 
@@ -55,9 +55,13 @@ Exit codes: `0` ok, `1` error, `2` incomplete read (run again with a larger `-v`
 | --- | --- |
 | Queue with a `RedrivePolicy` | Each read increments `ApproximateReceiveCount`; messages at `maxReceiveCount` move to the DLQ |
 | Messages in flight | Messages you read stay invisible to the real consumer for `-v` seconds |
-| FIFO queue | Reading a message locks the rest of its `MessageGroupId` for `-v` seconds |
+| FIFO queue (not a DLQ) | Reading a message locks the rest of its `MessageGroupId` for `-v` seconds |
 
-When any of these applies, the script stops and asks for `--yes`. Reading the DLQ instead of the source queue avoids the first risk.
+When any of these applies, the script stops and asks for `--yes`. Reading the DLQ instead of the source queue avoids the first and the last risk.
+
+## FIFO queues
+
+FIFO queues work like standard ones, with one limit from SQS: a read sees at most the first 10 messages of each message group. Later messages of a group are only returned after the earlier ones are deleted, so they can't be peeked. The script tells you when this cut the read short.
 
 ## Sensitive data
 

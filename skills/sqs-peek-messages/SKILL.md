@@ -10,7 +10,7 @@ compatibility: Requires Python 3.10+ and AWS CLI v2 with read access to SQS.
 
 # Peek at SQS messages without consuming them
 
-Reads messages from any SQS queue and saves one `<MessageId>.json` per message (the SQS `Message`
+Reads messages from any SQS queue, standard or FIFO, and saves one `<MessageId>.json` per message (the SQS `Message`
 object, always with `Attributes` and `MessageAttributes`). It does not analyze or group: that is up
 to the caller, whether the agent reading the JSON files or the project's own analysis.
 
@@ -18,7 +18,8 @@ to the caller, whether the agent reading the JSON files or the project's own ana
 
 - `python3` >= 3.10 (standard library only) and AWS CLI v2 in `PATH`.
 - An authenticated AWS CLI profile with `sqs:GetQueueUrl`, `sqs:GetQueueAttributes` and
-  `sqs:ReceiveMessage`. If the user does not say which profile, ask; do not guess.
+  `sqs:ReceiveMessage`, plus `sqs:ListDeadLetterSourceQueues` for FIFO queues (without it, every
+  FIFO queue is treated as having a consumer). If the user does not say which profile, ask; do not guess.
 
 ## Rule: never delete, and warn about the impact before reading
 
@@ -34,7 +35,7 @@ stops without reading anything (exit code 3). Show the risks to the user and run
 | --- | --- | --- |
 | The message moves to the DLQ | Every read increments `ApproximateReceiveCount`; in a queue with a `RedrivePolicy` (`maxReceiveCount` = 3), reading a message that already failed 3 times moves it to the DLQ instead of returning it | Read fewer messages (`-n`); prefer reading the DLQ over the source queue |
 | The consumer is delayed | A message read stays invisible to the real consumer for `-v` seconds | Small `-v` and few messages when there are messages in flight |
-| FIFO locks the group | Reading a message blocks the rest of its `MessageGroupId` for `-v` seconds | Read few messages with a small `-v` |
+| FIFO locks the group | Reading a message blocks the rest of its `MessageGroupId` for `-v` seconds. Not flagged for a FIFO DLQ, which has no consumer | Read few messages with a small `-v` |
 
 After reading, if the script warns that messages reached `ApproximateReceiveCount >=
 maxReceiveCount`, pass it on: the next read (including the consumer's) moves them to the DLQ.
@@ -55,7 +56,16 @@ python3 <skill>/scripts/peek_messages.py <url|name> [-n 10 | --all] [-o folder] 
   again, confirm and remove only the `*.json` files.
 - `-v` defaults to ~2 s per batch of 10 + 30 s, based on how many will be read. The script stops on
   its own before the first batch's timeout expires.
-- `--check` only shows volume, retention and risks, without reading.
+- `--check` only shows the queue type, volume, retention and risks, without reading.
+- The queue name must be exact: FIFO names end in `.fifo`.
+
+### FIFO queues
+
+The script works the same way on FIFO queues, with one limit SQS imposes: while a message group is
+locked by this read, SQS does not return that group's later messages, and it returns them only
+after the earlier ones are deleted. So a read sees at most the first 10 messages of each group. When
+that cuts the read short, the script prints a `FIFO: read N of ~M` line and exits with 0. Pass it on
+to the user: the rest cannot be peeked, and reading again returns the same messages.
 
 | Code | Meaning |
 | --- | --- |
@@ -79,6 +89,7 @@ it over the same folder. `Attributes.SentTimestamp`, `ApproximateReceiveCount` a
 | --- | --- |
 | `AccessDenied` / `ExpiredToken` / no credentials | Ask the user to authenticate the profile (e.g. `aws sso login --profile <profile>`) and retry with `-p` |
 | `aws` not found | Install AWS CLI v2 |
+| `NonExistentQueue` for a name | Check the exact name; FIFO names end in `.fifo` |
 | Refused because of `.gitignore` | Add the folder to `.gitignore`; `--skip-gitignore-check` only outside version-controlled repos |
 | Exit 1 after some `Read: N` lines | An AWS call failed mid-read; the files already saved are valid. Fix the cause before reading again |
 | Read < visible | Messages in flight or still invisible from an earlier read; wait for the visibility timeout |

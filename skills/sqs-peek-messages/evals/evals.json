@@ -12,6 +12,12 @@
       "prompt": "Show me 20 messages from the prod-orders queue (not the DLQ). (The script exits with code 3: RedrivePolicy with maxReceiveCount=3 and 800 messages in flight.)",
       "expected_output": "Does not run with --yes on its own. Explains the risks shown: reading increments ApproximateReceiveCount and messages at maxReceiveCount=3 move to the DLQ; there is an active consumer and the messages read stay invisible to it for -v seconds. Suggests reading fewer messages, or the DLQ instead of the source queue, and only runs again with --yes after the user confirms. If the script then warns about messages at the maxReceiveCount limit, passes the warning on.",
       "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Show me 50 messages from payments-dlq.fifo. (The script reads 10 and prints \"FIFO: read 10 of ~50\": all messages are in the same MessageGroupId.)",
+      "expected_output": "Reads the queue with peek_messages.py using the full name ending in .fifo, without --yes since a FIFO DLQ has no consumer to hold up. Summarizes the 10 messages read and explains that SQS only returns the first messages of each group without consuming them, so the other ~40 cannot be peeked and reading again returns the same 10. Never deletes messages to get past the limit.",
+      "files": []
     }
   ]
 }

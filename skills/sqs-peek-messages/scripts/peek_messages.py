@@ -7,6 +7,10 @@ It never deletes anything, but reading is not harmless: each read increments App
 consumer for -v seconds and, in FIFO queues, locks its MessageGroupId. Before reading, the script
 inspects the queue and, if any of these risks applies, stops and asks for --yes.
 
+Works for standard and FIFO queues. In a FIFO queue, while a message group is locked SQS does not
+return the group's later messages, so one read sees at most the first 10 messages of each group;
+the script reports when that cut the read short.
+
 Exit codes: 0 ok · 1 error · 2 incomplete read · 3 risks found, confirm with --yes.
 Uses the AWS CLI (Python standard library only).
 """
@@ -22,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import NoReturn
 
@@ -79,9 +84,11 @@ class Aws:
         if profile:
             self.base += ["--profile", profile]
 
-    def __call__(self, *command: str) -> dict:
+    def __call__(self, *command: str, quiet: bool = False) -> dict:
         result = subprocess.run(["aws", "sqs", *command, *self.base], capture_output=True, text=True, check=False)
         if result.returncode != 0:
+            if quiet:
+                raise AwsError(command[0])
             stderr = result.stderr.strip()
             print(f"ERROR: aws sqs {command[0]} failed:\n{stderr}", file=sys.stderr)
             if AUTH_ERRORS.search(stderr):
@@ -112,7 +119,16 @@ def check_gitignored(directory: Path) -> None:
         )
 
 
-def risks_of(attrs: dict, visibility_timeout: int) -> list[str]:
+def is_dead_letter_queue(aws: Aws, url: str) -> bool | None:
+    """True if some queue sends its failures here; None if that cannot be checked (no permission)."""
+    try:
+        sources = aws("list-dead-letter-source-queues", "--queue-url", url, "--max-items", "1", quiet=True)
+    except AwsError:
+        return None
+    return bool(sources.get("queueUrls"))
+
+
+def risks_of(attrs: dict, visibility_timeout: int, fifo: bool, dead_letter_queue: bool | None) -> list[str]:
     risks = []
     if attrs.get("RedrivePolicy"):
         policy = json.loads(attrs["RedrivePolicy"])
@@ -128,8 +144,13 @@ def risks_of(attrs: dict, visibility_timeout: int) -> list[str]:
             f"{in_flight} message(s) in flight: there is a consumer, a redrive or a recent read by this script; "
             f"messages read here stay invisible to it for {visibility_timeout}s."
         )
-    if attrs.get("FifoQueue") == "true":
-        risks.append(f"FIFO: reading a message locks the rest of its MessageGroupId for {visibility_timeout}s.")
+    # A FIFO DLQ has no consumer to hold up, so locking its groups only matters for other queues.
+    if fifo and not dead_letter_queue:
+        risks.append(
+            f"FIFO: reading a message locks the rest of its MessageGroupId for {visibility_timeout}s, "
+            "holding up the consumer for that whole group"
+            + (" (could not check whether this is a DLQ)." if dead_letter_queue is None else ".")
+        )
     return risks
 
 
@@ -175,17 +196,23 @@ def main() -> None:
 
     region = args.region or region_from_url(args.queue)
     aws = Aws(region, args.profile)
-    url = args.queue if args.queue.startswith("https://") else aws("get-queue-url", "--queue-name", args.queue)["QueueUrl"]
+    try:
+        url = args.queue if args.queue.startswith("https://") else aws("get-queue-url", "--queue-name", args.queue)["QueueUrl"]
+    except AwsError:
+        if not args.queue.endswith(".fifo"):
+            print("HINT: FIFO queue names end in .fifo; pass the full name.", file=sys.stderr)
+        raise
     name = url.rstrip("/").split("/")[-1]
     output_dir = args.output_dir or Path("sqs-messages") / name
 
     attrs = aws("get-queue-attributes", "--queue-url", url, "--attribute-names", *ATTRIBUTES).get("Attributes", {})
     visible = int(attrs.get("ApproximateNumberOfMessages", 0))
+    fifo = attrs.get("FifoQueue") == "true" or name.endswith(".fifo")
     target = visible if args.all else min(args.count, visible) or args.count
     visibility_timeout = args.visibility_timeout or min(43200, math.ceil(target / BATCH_SIZE) * 2 + 30)
-    risks = risks_of(attrs, visibility_timeout)
+    risks = risks_of(attrs, visibility_timeout, fifo, is_dead_letter_queue(aws, url) if fifo else False)
 
-    print(f"Queue:      {url}")
+    print(f"Queue:      {url} ({'FIFO' if fifo else 'standard'})")
     print(
         f"Messages:   {visible} visible | {attrs.get('ApproximateNumberOfMessagesNotVisible', 0)} in flight | "
         f"retention {int(attrs.get('MessageRetentionPeriod', 0)) / 86400:.1f} d"
@@ -217,6 +244,7 @@ def main() -> None:
     deadline = None
     incomplete = ""
     aws_failed = False
+    fifo_cut = False
     # Count received messages, not saved ones: every received message already had its receive count bumped.
     while args.all or len(seen) < args.count:
         if deadline and time.monotonic() >= deadline:
@@ -227,6 +255,9 @@ def main() -> None:
             break
         wanted = BATCH_SIZE if args.all else min(BATCH_SIZE, args.count - len(seen))
         started = time.monotonic()
+        # FIFO only: if the AWS CLI retries a call, the same attempt id returns the same messages
+        # instead of hiding a second set.
+        attempt = ["--receive-request-attempt-id", uuid.uuid4().hex] if fifo else []
         try:
             messages = aws(
                 "receive-message", "--queue-url", url,
@@ -235,12 +266,15 @@ def main() -> None:
                 "--wait-time-seconds", "5",
                 "--attribute-names", "All",
                 "--message-attribute-names", "All",
+                *attempt,
             ).get("Messages", [])
         except AwsError:
             # Still print the summary: what was already read is saved and invisible for -v seconds.
             aws_failed = True
             break
         if not messages:
+            # FIFO: an empty answer can mean "every group left is locked by this read", not "drained".
+            fifo_cut = fifo and len(seen) < target
             break
         # The visibility timeout clock starts when the first batch is received.
         deadline = deadline or started + visibility_timeout - safety
@@ -270,6 +304,12 @@ def main() -> None:
         print(
             f"WARNING: {at_limit} message(s) reached ApproximateReceiveCount >= maxReceiveCount ({max_receive}): "
             "the next read (including the consumer's) moves them to the DLQ."
+        )
+    if fifo_cut:
+        print(
+            f"FIFO: read {len(seen)} of ~{target}. The rest are later messages of groups this read locked; "
+            "SQS returns them only after the earlier ones are deleted, so they cannot be peeked. "
+            "Reading again after the visibility timeout returns the same messages."
         )
     if failed or aws_failed:
         sys.exit(EXIT_ERROR)
