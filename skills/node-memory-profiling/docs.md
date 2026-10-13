@@ -49,11 +49,11 @@ python3 scripts/sample_memory.py orders-staging -l app.kubernetes.io/name=orders
 python3 scripts/sample_memory.py orders-prod -l x --summary
 ```
 
-It prints, per pod, the slope of the memory floor between GCs (MiB/h) and when the container reaches its limit. Exit codes: `0` ok, `1` error, `2` invalid arguments, `3` `--mode exec` refused because the namespace or context looks like production.
+It prints, per pod, the slope of the memory floor between GCs (MiB/h) and when the container reaches its limit. Exit codes: `0` ok, `1` error, `2` invalid arguments, `3` `--mode exec` refused because the namespace or context looks like production (or the context is unknown).
 
 ## Side effects and limitations
 
-- Writes `~/mem-investigations/<namespace>-<date>.md` (findings) and `~/mem-investigations/<namespace>.csv` (samples), outside any repo. They hold numbers and pod names only.
+- Writes `~/mem-investigations/<namespace>-<date>.md` (findings) and `~/mem-investigations/<context>_<namespace>.csv` (samples), outside any repo. They hold numbers and pod names only.
 - The production check in the script is by name (`prod`, `production`, `prd`, `live`); it is a safety net, not a permission.
 - Native memory leaks (only RSS grows) don't show up in heap snapshots; the skill points to the metrics that separate the two.
 

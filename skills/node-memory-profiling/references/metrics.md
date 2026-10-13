@@ -69,14 +69,17 @@ python3 <skill>/scripts/sample_memory.py <namespace> -l <selector> [--context <c
 - **`--mode exec`**: reads the container cgroup (v2: `memory.current`/`anon`; v1:
   `usage_in_bytes`/`total_rss`) and `/proc/<pid>/status` (`RssAnon`, `RssFile`) of the `node`
   process, which is not always PID 1 (`npm start`, `dumb-init`). If the read fails (image without
-  `sh`/`awk`), the script warns once with the reason. Staging only: the script refuses when the
-  namespace or context contains `prod`, `production`, `prd` or `live` as a word (exit 3). This is a
+  `sh`/`awk`, or no `node`/`nodejs` process), the script warns once with the reason. Staging
+  only: the script refuses when the namespace or the context (`--context`, or the current one when
+  omitted) contains `prod`, `production`, `prd` or `live` as a word, or when it can't tell the
+  context (exit 3). This is a
   safety net, not a permission: never run `exec` in production even when the name doesn't match.
   If `RssFile` stays flat and `anon` rises, the memory belongs to the process, not to file cache.
-- **Output:** appends to `~/mem-investigations/<namespace>.csv`. At the end (or on Ctrl+C) it
+- **Output:** appends to `~/mem-investigations/<context>_<namespace>.csv`. At the end (or on Ctrl+C) it
   prints, per pod, the slope of the **floor between GCs** and in how many hours the container
   reaches its limit. The floor is the minimum per `--window` minutes, ignoring the current window
-  and the first `--warmup` minutes of life. `--summary` only summarizes an existing CSV.
+  and the first `--warmup` minutes of life. If a container restarts during sampling (OOMKill),
+  only the samples of the current one are used. `--summary` only summarizes an existing CSV.
 - **kubectl errors:** a transient error loses only that sample. Expired credentials or 3 failures in
   a row stop the collection, but the summary of what was collected is still printed (exit 1).
 - **Duration:** needs ~3 windows after the warm-up (≈ 1h15 of container life with the defaults). If

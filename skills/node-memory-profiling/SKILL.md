@@ -224,7 +224,7 @@ python3 <skill>/scripts/sample_memory.py <namespace> -l <selector> [--context <c
 | 0 | Success |
 | 1 | Error (kubectl, credentials, CSV from another mode); the summary of what was collected is still printed |
 | 2 | Invalid arguments |
-| 3 | `--mode exec` refused because the namespace or context looks like production |
+| 3 | `--mode exec` refused: the namespace or context looks like production, or the context is unknown |
 
 ## Common errors
 

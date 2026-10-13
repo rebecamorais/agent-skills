@@ -44,11 +44,14 @@ AUTH_HINT = (
     "Cluster credentials are missing or expired: refresh them "
     "(e.g. `aws eks update-kubeconfig`, `gcloud container clusters get-credentials`) and retry."
 )
-# node is not always PID 1 (npm start, dumb-init): look for the first process whose comm is "node".
+# node is not always PID 1 (npm start, dumb-init): look for the first process whose comm is "node"
+# (or "nodejs"), and say so instead of measuring PID 1 when there is none.
 # cgroup v2 (memory.current) with a fallback to v1 (memory/memory.usage_in_bytes, total_rss).
+NO_NODE = "no-node-process"
 EXEC_SCRIPT = r"""
-pid=1
-for p in /proc/[0-9]*; do [ "$(cat $p/comm 2>/dev/null)" = node ] && pid=${p#/proc/} && break; done
+pid=
+for p in /proc/[0-9]*; do case "$(cat $p/comm 2>/dev/null)" in node|nodejs) pid=${p#/proc/}; break;; esac; done
+[ -n "$pid" ] || { echo no-node-process; exit 0; }
 if [ -f /sys/fs/cgroup/memory.current ]; then
   cur=$(cat /sys/fs/cgroup/memory.current); anon=$(awk '/^anon /{print $2}' /sys/fs/cgroup/memory.stat)
 else
@@ -70,6 +73,20 @@ def to_mib(quantity: str) -> float | None:
     return float(value) * UNITS_MIB[unit] if unit else float(value) / 1024**2
 
 
+class FatalKubectlError(RuntimeError):
+    """kubectl is missing or the credentials expired: retrying won't help."""
+
+
+def current_context() -> str | None:
+    try:
+        result = subprocess.run(["kubectl", "config", "current-context"], capture_output=True, text=True)
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
 class Kubectl:
     def __init__(self, namespace: str, context: str | None) -> None:
         self.base = ["kubectl", "-n", namespace] + (["--context", context] if context else [])
@@ -78,10 +95,12 @@ class Kubectl:
         try:
             result = subprocess.run(self.base + list(args), capture_output=True, text=True)
         except FileNotFoundError:
-            raise RuntimeError("kubectl not found in PATH")
+            raise FatalKubectlError("kubectl not found in PATH")
         if result.returncode != 0:
             message = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "kubectl failed"
-            raise RuntimeError(f"{message}\n{AUTH_HINT}" if AUTH_ERRORS.search(message) else message)
+            if AUTH_ERRORS.search(message):
+                raise FatalKubectlError(f"{message}\n{AUTH_HINT}")
+            raise RuntimeError(message)
         return result.stdout
 
     def pods(self, selector: str, container: str | None) -> dict[str, tuple[str, datetime, float | None]]:
@@ -107,10 +126,14 @@ class Kubectl:
     def top(self, selector: str) -> dict[tuple[str, str], float | None]:
         """(pod, container) → MiB. Per container: the pod total adds the sidecars."""
         lines = self.run("top", "pod", "-l", selector, "--containers", "--no-headers").splitlines()
-        return {(pod, name): to_mib(memory) for pod, name, _cpu, memory, *_ in (line.split() for line in lines)}
+        # Skip lines that are not "POD NAME CPU MEMORY" (warnings, blank lines).
+        rows = (line.split() for line in lines)
+        return {(row[0], row[1]): to_mib(row[3]) for row in rows if len(row) >= 4}
 
     def read_cgroup(self, pod: str, container: str) -> list[float]:
         output = self.run("exec", pod, "-c", container, "--", "sh", "-c", EXEC_SCRIPT).strip()
+        if output == NO_NODE:
+            raise ValueError("no process named node/nodejs in the container; pass the right one with -c")
         try:
             current, anon, rss_anon_kb, rss_file_kb = output.split(",")
             return [int(current) / 1024**2, int(anon) / 1024**2, int(rss_anon_kb) / 1024, int(rss_file_kb) / 1024]
@@ -163,6 +186,12 @@ def summarize(csv_path: Path, warmup: float, window: float) -> None:
 
     print(f"\nFloor of `{metric}` per pod (warm-up {warmup:g} min, {window:g} min windows):")
     for pod, samples in by_pod.items():
+        # An OOMKill restarts the container and its age goes back to ~0: keep only the samples of the
+        # current container, or floors from two lifetimes would end up in one regression.
+        restarts = [i for i in range(1, len(samples)) if float(samples[i]["age_min"]) < float(samples[i - 1]["age_min"])]
+        if restarts:
+            samples = samples[restarts[-1] :]
+            print(f"- {pod}: container restarted {len(restarts)}x during sampling; using only the current one")
         floors: dict[int, tuple[float, float]] = {}
         for row in samples:
             age, value = float(row["age_min"]), float(row[metric])
@@ -198,25 +227,32 @@ def main() -> int:
     parser.add_argument("--mode", choices=["top", "exec"], default="top")
     parser.add_argument("-n", "--samples", type=int, default=30, help="number of samples (default 30)")
     parser.add_argument("-i", "--interval", type=int, default=120, help="seconds between samples (default 120)")
-    parser.add_argument("-o", "--output", type=Path, help="CSV (default ~/mem-investigations/<namespace>.csv)")
+    parser.add_argument("-o", "--output", type=Path, help="CSV (default ~/mem-investigations/<context>_<namespace>.csv)")
     parser.add_argument("--warmup", type=float, default=30, help="minutes of container life ignored (default 30)")
     parser.add_argument("--window", type=float, default=15, help="minutes per floor window (default 15)")
     parser.add_argument("--summary", action="store_true", help="only summarize an existing CSV")
     args = parser.parse_args()
 
-    output = args.output or Path.home() / "mem-investigations" / f"{args.namespace}.csv"
+    # Without --context kubectl uses the current one: resolve it for the production check and the CSV name.
+    context = args.context or current_context()
+    prefix = f"{re.sub(r'[^A-Za-z0-9._-]+', '_', context)}_" if context else ""
+    output = args.output or Path.home() / "mem-investigations" / f"{prefix}{args.namespace}.csv"
     if args.summary:
         if not output.is_file():
             print(f"ERROR: {output} not found; pass the CSV with -o.", file=sys.stderr)
             return EXIT_ERROR
         summarize(output, args.warmup, args.window)
         return 0
-    if args.mode == "exec" and (PRODUCTION.search(args.namespace) or PRODUCTION.search(args.context or "")):
-        print("ERROR: kubectl exec is not allowed in production. Use --mode top.", file=sys.stderr)
-        return EXIT_PRODUCTION
+    if args.mode == "exec":
+        if not context:
+            print("ERROR: could not tell the kube context, so exec is refused. Pass --context.", file=sys.stderr)
+            return EXIT_PRODUCTION
+        if PRODUCTION.search(args.namespace) or PRODUCTION.search(context):
+            print("ERROR: kubectl exec is not allowed in production. Use --mode top.", file=sys.stderr)
+            return EXIT_PRODUCTION
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    new_file = not output.exists()
+    new_file = not output.exists() or output.stat().st_size == 0
     if not new_file:
         with output.open() as file:
             header = file.readline().strip().split(",")
@@ -228,7 +264,7 @@ def main() -> int:
     failures = status = 0
     try:
         # Appends and flushes every sample, so an interrupted run keeps what it collected.
-        with output.open("a", newline="") as file:
+        with output.open("w" if new_file else "a", newline="") as file:
             writer = csv.writer(file)
             if new_file:
                 writer.writerow(COLUMNS[args.mode])
@@ -241,7 +277,7 @@ def main() -> int:
                     # sample; expired credentials or 3 failures in a row stop, still with the summary.
                     failures += 1
                     print(f"ERROR: [{i + 1}/{args.samples}] kubectl: {error}", file=sys.stderr)
-                    if AUTH_ERRORS.search(str(error)) or "not found in PATH" in str(error) or failures >= 3:
+                    if isinstance(error, FatalKubectlError) or failures >= 3:
                         status = EXIT_ERROR
                         break
                     rows = []
