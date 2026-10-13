@@ -27,6 +27,7 @@ The rest of the file has the instructions the agent follows once the skill is ac
 | Skill | Description |
 | --- | --- |
 | [sqs-peek-messages](skills/sqs-peek-messages/) | Read messages from an AWS SQS queue (DLQ or not) without consuming them |
+| [node-memory-profiling](skills/node-memory-profiling/) | Investigate memory leaks and OOMKills in Node.js services on Kubernetes |
 
 ### sqs-peek-messages
 
@@ -43,6 +44,22 @@ Reads messages from any AWS SQS queue and saves one `<MessageId>.json` per messa
 **Requirements:** Python 3.10+, AWS CLI v2 and a profile with `sqs:GetQueueUrl`, `sqs:GetQueueAttributes` and `sqs:ReceiveMessage`.
 
 More in [its docs](skills/sqs-peek-messages/docs.md).
+
+### node-memory-profiling
+
+Leads a memory investigation of a Node.js service on Kubernetes one phase at a time, showing each command and its impact before running it. It never attaches a debugger to production, never runs commands that change production itself, and never reads heap snapshots, env values or log lines.
+
+**Use when:**
+
+- A pod is OOMKilled (exit 137) or dies with "JavaScript heap out of memory"
+- Memory or RSS keeps climbing and you suspect a leak
+- You need to take or read a heap snapshot, or attach Chrome DevTools in staging
+
+**Output:** a findings file in `~/mem-investigations/` with evidence, hypotheses and pending cleanup; optionally a CSV of memory samples with the slope per pod.
+
+**Requirements:** `kubectl` with read access to the cluster and Python 3.10+; optionally a metrics backend (Datadog, Prometheus).
+
+More in [its docs](skills/node-memory-profiling/docs.md).
 
 <!--
 Per skill, add a table row above and a section like this one:
