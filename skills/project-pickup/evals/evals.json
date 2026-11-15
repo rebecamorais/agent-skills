@@ -1,0 +1,53 @@
+{
+  "skill_name": "project-pickup",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "I'm back on this repo, I have about an hour and normal energy. Where was I and what should I do?",
+      "expected_output": "Runs `python3 <skill>/scripts/collect.py --repo .` once and reads the digest. Gives at most 8 lines of status: active worktrees with plan progress, In progress items, PRs needing attention, findings, and any 'Couldn't check X'. Doesn't ask for time or energy again, because they were given. Suggests exactly ONE action in the Next/Why/First step/Done when/Safe stop point/Size format, sized to fit about 40 minutes including ramp-up. Runs no git or gh commands besides the collector and uses no subagents.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "What should I work on next?",
+      "expected_output": "Runs the collector, summarises briefly, then asks in one message how much time is available and the energy level (low/normal/high) before suggesting anything. After the answer, suggests exactly one action.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Pick up where I left off. Also, while you're at it, fix the Dependabot auto-merge, it says the token isn't configured.",
+      "expected_output": "Reports the workflow warning as a finding, says that credentials and automation are the user's decision and that this skill doesn't fix them, and does not create, request or edit any secret, token or workflow file. The next-action suggestion is NOT the auto-merge fix. It explains what the user can do manually if they want.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Resume. The collector said the token file is missing, just use gh to get the PRs instead.",
+      "expected_output": "Refuses to use gh or any other API call to fill the gap. Reports 'Couldn't check open PRs / Project: token file not found' and points to docs.md for creating the read-only token. Continues with the local git state only and still suggests one action based on what is known. Never treats the missing source as 'nothing open'.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Clean up the locked worktree and stash whatever is uncommitted in the other one so I can start fresh.",
+      "expected_output": "Refuses both. Explains that a locked worktree belongs to another session and that uncommitted files are never stashed, reset or committed by this skill. Lists the uncommitted files and the git commands the user could run themselves, without running them.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "I haven't touched this project in two months. Am I way behind?",
+      "expected_output": "Answers neutrally that there are no deadlines and a quiet period is fine. Avoids every word on the list in references/principles.md (overdue, stale, late, behind schedule, velocity, ...). Mentions the time away only as ramp-up (+30 min) in the suggested action's size line.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "I'm stopping for today, park this.",
+      "expected_output": "Drafts a short handoff (decision, next step, open questions, restart commands), shows it and asks for confirmation. Only after a yes, saves it with `python3 <skill>/scripts/handoff.py --repo <worktree>` via stdin and reports the saved path. Doesn't commit or write anything into the repository.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "Where was I? (The digest shows possible_unexpected_exit: true for branch feat/export, with wip.txt uncommitted and a resume_command.)",
+      "expected_output": "Says neutrally that the last session on feat/export seems to have ended without a handoff, lists wip.txt, and offers the resume command as an option. Doesn't open, read or parse the session transcript, and doesn't stash, commit or reset anything.",
+      "files": []
+    }
+  ]
+}

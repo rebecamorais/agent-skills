@@ -1,0 +1,160 @@
+{
+ "$comment": "Envelope of a project-pickup snapshot. $defs.<op> validates each source's data; a source that fails is dropped, not partially trusted.",
+ "type": "object",
+ "required": ["schema", "collected_at", "profile", "repo", "collector_version", "budget", "sources", "data", "digest"],
+ "properties": {
+  "schema": {"const": "eng.snapshot.v1"},
+  "collected_at": {"type": "string"},
+  "profile": {"enum": ["pickup"]},
+  "repo": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+  "collector_version": {"type": "string"},
+  "config_source": {"type": ["string", "null"]},
+  "budget": {"type": "object", "required": ["requests", "elapsed_ms"], "properties": {"requests": {"type": "integer"}, "elapsed_ms": {"type": "integer"}, "rate_remaining": {"type": ["integer", "null"]}}},
+  "sources": {"type": "object", "additionalProperties": {"$ref": "#/$defs/source_status"}},
+  "data": {"type": "object"},
+  "digest": {"$ref": "#/$defs/digest"}
+ },
+ "$defs": {
+  "source_status": {
+   "type": "object",
+   "required": ["status"],
+   "properties": {
+    "status": {"enum": ["ok", "partial", "error", "skipped", "unconfigured"]},
+    "error": {"type": "string"},
+    "count": {"type": "integer"},
+    "truncated": {"type": "boolean"},
+    "elapsed_ms": {"type": "integer"}
+   }
+  },
+  "nullable_string": {"type": ["string", "null"]},
+  "project_items": {
+   "type": "object",
+   "required": ["title", "url", "total", "items"],
+   "properties": {
+    "title": {"type": "string"},
+    "url": {"type": "string"},
+    "total": {"type": "integer"},
+    "items": {"type": "array", "maxItems": 1000, "items": {
+     "type": "object",
+     "required": ["type", "archived", "status", "priority", "number", "title", "url", "state", "labels", "sub_total", "sub_completed", "closed_by_prs"],
+     "properties": {
+      "type": {"type": "string"},
+      "archived": {"type": "boolean"},
+      "status": {"$ref": "#/$defs/nullable_string"},
+      "priority": {"$ref": "#/$defs/nullable_string"},
+      "number": {"type": ["integer", "null"]},
+      "title": {"type": "string", "maxLength": 200},
+      "url": {"type": "string"},
+      "state": {"enum": ["OPEN", "CLOSED", "MERGED", null]},
+      "state_reason": {"$ref": "#/$defs/nullable_string"},
+      "repo": {"$ref": "#/$defs/nullable_string"},
+      "labels": {"type": "array", "items": {"type": "string"}},
+      "parent": {"type": ["integer", "null"]},
+      "sub_total": {"type": "integer", "minimum": 0},
+      "sub_completed": {"type": "integer", "minimum": 0},
+      "closed_by_prs": {"type": "array", "items": {"type": "object", "required": ["number", "state"], "properties": {"number": {"type": "integer"}, "state": {"type": "string"}}}},
+      "updated_at": {"$ref": "#/$defs/nullable_string"}
+     }
+    }}
+   }
+  },
+  "open_prs": {
+   "type": "object",
+   "required": ["default_branch", "total", "prs"],
+   "properties": {
+    "default_branch": {"type": "string"},
+    "total": {"type": "integer"},
+    "prs": {"type": "array", "maxItems": 500, "items": {
+     "type": "object",
+     "required": ["number", "title", "url", "draft", "head", "base", "author", "is_dependabot", "auto_merge", "closes"],
+     "properties": {
+      "number": {"type": "integer"},
+      "title": {"type": "string", "maxLength": 200},
+      "url": {"type": "string"},
+      "draft": {"type": "boolean"},
+      "head": {"type": "string"},
+      "base": {"type": "string"},
+      "mergeable": {"enum": ["MERGEABLE", "CONFLICTING", "UNKNOWN", null]},
+      "review": {"enum": ["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED", null]},
+      "author": {"type": "string"},
+      "is_dependabot": {"type": "boolean"},
+      "auto_merge": {"type": "boolean"},
+      "labels": {"type": "array", "items": {"type": "string"}},
+      "closes": {"type": "array", "items": {"type": "integer"}},
+      "checks": {"enum": ["SUCCESS", "FAILURE", "ERROR", "PENDING", "EXPECTED", null]},
+      "head_oid": {"$ref": "#/$defs/nullable_string"}
+     }
+    }}
+   }
+  },
+  "workflow_warnings": {
+   "type": "object",
+   "required": ["workflows"],
+   "properties": {
+    "workflows": {"type": "array", "maxItems": 5, "items": {
+     "type": "object",
+     "required": ["file", "name", "conclusion", "annotations"],
+     "properties": {
+      "file": {"type": "string"},
+      "name": {"type": "string"},
+      "run_url": {"$ref": "#/$defs/nullable_string"},
+      "conclusion": {"$ref": "#/$defs/nullable_string"},
+      "created_at": {"$ref": "#/$defs/nullable_string"},
+      "annotations": {"type": "array", "maxItems": 100, "items": {"type": "object", "required": ["level", "job", "message"], "properties": {"level": {"enum": ["warning", "failure"]}, "job": {"type": "string"}, "message": {"type": "string", "maxLength": 200}}}}
+     }
+    }}
+   }
+  },
+  "local_git": {
+   "type": "object",
+   "required": ["base", "worktrees"],
+   "properties": {
+    "base": {"type": "object", "required": ["ref"], "properties": {"ref": {"type": "string"}, "commit_at": {"$ref": "#/$defs/nullable_string"}}},
+    "worktrees": {"type": "array", "maxItems": 20, "items": {
+     "type": "object",
+     "required": ["path", "main", "locked", "missing"],
+     "properties": {
+      "path": {"type": "string"},
+      "branch": {"$ref": "#/$defs/nullable_string"},
+      "main": {"type": "boolean"},
+      "locked": {"type": "boolean"},
+      "missing": {"type": "boolean"},
+      "dirty_count": {"type": "integer", "minimum": 0},
+      "dirty_files": {"type": "array", "maxItems": 50},
+      "ahead_base": {"type": "integer", "minimum": 0},
+      "behind_base": {"type": "integer", "minimum": 0}
+     }
+    }}
+   }
+  },
+  "local_context": {
+   "type": "object",
+   "required": ["worktrees"],
+   "properties": {
+    "worktrees": {"type": "array", "maxItems": 20, "items": {
+     "type": "object",
+     "required": ["path", "handoff", "plans", "session"],
+     "properties": {
+      "path": {"type": "string"},
+      "handoff": {"type": ["object", "null"], "properties": {"text": {"type": "string", "maxLength": 8000}}},
+      "plans": {"type": "array", "maxItems": 10, "items": {"type": "object", "required": ["file", "done", "total", "next_tasks"], "properties": {"next_tasks": {"type": "array", "maxItems": 3}}}},
+      "session": {"type": ["object", "null"], "properties": {"agent": {"type": "string"}, "session_id": {"type": "string", "pattern": "^[A-Za-z0-9-]{8,64}$"}}}
+     }
+    }}
+   }
+  },
+  "digest": {
+   "type": "object",
+   "required": ["schema", "repo", "collected_at", "sources", "unknown", "worktrees", "prs", "findings"],
+   "properties": {
+    "schema": {"const": "eng.digest.v1"},
+    "unknown": {"type": "array", "items": {"type": "string"}},
+    "findings": {"type": "array", "maxItems": 30, "items": {
+     "type": "object",
+     "required": ["id", "severity", "kind", "title"],
+     "properties": {"id": {"type": "string"}, "severity": {"enum": ["S1", "S2", "S3", "S4"]}, "kind": {"type": "string"}, "title": {"type": "string", "maxLength": 300}}
+    }}
+   }
+  }
+ }
+}

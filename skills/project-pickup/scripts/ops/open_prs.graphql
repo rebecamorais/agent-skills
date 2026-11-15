@@ -1,0 +1,20 @@
+# Read-only: open pull requests of one repository, newest activity first.
+query OpenPrs($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
+    pullRequests(states: OPEN, first: 50, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number title url isDraft createdAt updatedAt headRefName baseRefName
+        mergeable reviewDecision
+        author { login }
+        autoMergeRequest { enabledAt }
+        labels(first: 10) { nodes { name } }
+        closingIssuesReferences(first: 10) { nodes { number } }
+        commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
+      }
+    }
+  }
+  rateLimit { cost remaining resetAt }
+}

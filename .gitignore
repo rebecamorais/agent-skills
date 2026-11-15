@@ -2,3 +2,6 @@
 sqs-messages/
 
 __pycache__/
+
+# Local git worktrees created by agent sessions (the rest of .claude/ stays visible)
+/.claude/worktrees/

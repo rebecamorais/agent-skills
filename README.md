@@ -28,6 +28,7 @@ The rest of the file has the instructions the agent follows once the skill is ac
 | --- | --- |
 | [sqs-peek-messages](skills/sqs-peek-messages/) | Read messages from an AWS SQS queue (DLQ or not) without consuming them |
 | [node-memory-profiling](skills/node-memory-profiling/) | Investigate memory leaks and OOMKills in Node.js services on Kubernetes |
+| [project-pickup](skills/project-pickup/) | Pick a solo project back up: read-only snapshot, then one next action that fits your time |
 
 ### sqs-peek-messages
 
@@ -60,6 +61,22 @@ Leads a memory investigation of a Node.js service on Kubernetes one phase at a t
 **Requirements:** `kubectl` with read access to the cluster and Python 3.10+; optionally a metrics backend (Datadog, Prometheus).
 
 More in [its docs](skills/node-memory-profiling/docs.md).
+
+### project-pickup
+
+For a solo maintainer coming back to a repository. It reads the GitHub Project, open PRs, workflow warnings, worktrees, plan checkboxes and handoff notes read-only, then suggests exactly one next action that fits the time and energy available, with a safe stop point. It never writes to GitHub or git, and it has no deadlines or scores.
+
+**Use when:**
+
+- You're back after a break and want to know where you left off
+- You have a fixed amount of time and want one thing to do with it
+- You're stopping and want to save a handoff note for next time
+
+**Output:** a short status, then one action (what, why, first step, done when, stop point, size). Snapshots and handoff notes stay private under `~/.local/state/eng/`.
+
+**Requirements:** Python 3.10+, git, a read-only GitHub token file and a small per-repository config.
+
+More in [its docs](skills/project-pickup/docs.md).
 
 <!--
 Per skill, add a table row above and a section like this one:

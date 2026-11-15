@@ -1,0 +1,45 @@
+# Read-only: items of a organization-owned Project (v2) with their Status/Priority values.
+query ProjectItems($owner: String!, $number: Int!, $after: String) {
+  owner: organization(login: $owner) {
+    projectV2(number: $number) {
+      title
+      url
+      items(first: 100, after: $after) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          isArchived
+          type
+          updatedAt
+          fieldValues(first: 20) {
+            nodes {
+              __typename
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                name
+                field { ... on ProjectV2FieldCommon { name } }
+              }
+            }
+          }
+          content {
+            __typename
+            ... on Issue {
+              number title url state stateReason updatedAt closedAt
+              repository { nameWithOwner }
+              labels(first: 20) { nodes { name } }
+              parent { number }
+              subIssuesSummary { total completed }
+              closedByPullRequestsReferences(first: 5) { nodes { number state } }
+            }
+            ... on PullRequest {
+              number title url state updatedAt
+              repository { nameWithOwner }
+            }
+            ... on DraftIssue { title updatedAt }
+          }
+        }
+      }
+    }
+  }
+  rateLimit { cost remaining resetAt }
+}

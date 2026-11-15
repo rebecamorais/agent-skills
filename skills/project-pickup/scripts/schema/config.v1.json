@@ -1,0 +1,36 @@
+{
+ "$comment": "Per-repository config for project-pickup. Lives in <repo>/.eng.json or ~/.config/eng/repos/<owner>__<name>.json.",
+ "type": "object",
+ "required": ["schema", "repo"],
+ "additionalProperties": false,
+ "properties": {
+  "schema": {"const": "eng.config.v1"},
+  "repo": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+  "default_branch": {"type": "string", "pattern": "^[A-Za-z0-9._/-]{1,100}$"},
+  "project": {
+   "type": "object",
+   "required": ["owner", "number"],
+   "additionalProperties": false,
+   "properties": {
+    "owner_type": {"enum": ["user", "org"]},
+    "owner": {"type": "string", "pattern": "^[A-Za-z0-9-]{1,39}$"},
+    "number": {"type": "integer", "minimum": 1},
+    "status_field": {"type": "string", "maxLength": 50},
+    "priority_field": {"type": "string", "maxLength": 50},
+    "done_status": {"type": "string", "maxLength": 50},
+    "in_progress_status": {"type": "string", "maxLength": 50},
+    "planned_status": {"type": "string", "maxLength": 50},
+    "priority_order": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 50}}
+   }
+  },
+  "plans": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "globs": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 200, "pattern": "^[A-Za-z0-9_.*?\\[\\]/-]+$"}},
+    "max_files": {"type": "integer", "minimum": 1}
+   }
+  },
+  "watch_workflows": {"type": "array", "maxItems": 5, "items": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+\\.ya?ml$"}}
+ }
+}
