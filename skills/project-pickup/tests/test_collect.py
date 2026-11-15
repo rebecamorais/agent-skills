@@ -156,6 +156,105 @@ class DegradedTest(RepoTestCase):
         self.assertEqual(digest["sources"]["open_prs"]["status"], "ok")
 
 
+class TokenRoutingTest(RepoTestCase):
+    """Each token is used only for its own requests, and a broken token never falls back to the other."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.project_token = self.config_dir / "read-project.token"
+        self.project_token.write_text("project-token-not-real\n")
+        os.chmod(self.project_token, 0o600)
+
+    def run_with_project_token(self):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("sys.stdout", out), mock.patch("sys.stderr", err):
+            code = collect.main(["--repo", str(self.main), "--fresh", "--token-file", str(self.token),
+                                 "--project-token-file", str(self.project_token)])
+        return code, json.loads(out.getvalue())
+
+    def auth_by_kind(self):
+        seen: dict[str, set[str]] = {"project": set(), "prs": set(), "rest": set()}
+        for kind, (_, _, headers) in zip(self.fake.kinds, self.fake.calls):
+            seen[kind].add(headers["Authorization"])
+        return seen
+
+    def test_project_token_only_for_the_project(self):
+        code, _ = self.run_with_project_token()
+        self.assertEqual(code, 0)
+        seen = self.auth_by_kind()
+        self.assertEqual(seen["project"], {"Bearer project-token-not-real"})
+        self.assertEqual(seen["prs"], {"Bearer test-token-not-real"})
+        self.assertEqual(seen["rest"], {"Bearer test-token-not-real"})
+
+    def test_broken_project_token_does_not_fall_back(self):
+        os.chmod(self.project_token, 0o644)
+        code, digest = self.run_with_project_token()
+        self.assertEqual(code, 3)
+        self.assertEqual(digest["sources"]["project_items"]["status"], "error")
+        self.assertIn("read-project.token", digest["sources"]["project_items"]["error"])
+        self.assertEqual(digest["sources"]["open_prs"]["status"], "ok")
+        self.assertNotIn("project", {k for k, v in self.auth_by_kind().items() if v})
+
+    def test_project_items_use_read_token_when_no_project_token(self):
+        self.project_token.unlink()
+        code, _ = self.run_with_project_token()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.auth_by_kind()["project"], {"Bearer test-token-not-real"})
+
+
+class RepositoryProfilesTest(RepoTestCase):
+    """The three ways the skill is used: with a Project, issues/PRs only, and no GitHub at all."""
+
+    def test_with_project(self):
+        code, digest, _ = self.run_collect("--fresh")
+        self.assertEqual(code, 0)
+        self.assertEqual(digest["suggestion_inputs"]["unavailable"], {})
+        self.assertIn("planned_item", digest["suggestion_inputs"]["available"])
+
+    def test_issues_and_prs_only(self):
+        self.write_config({"schema": "eng.config.v1", "repo": "acme/widgets"})
+        code, digest, _ = self.run_collect("--fresh")
+        self.assertEqual(code, 3)
+        inputs = digest["suggestion_inputs"]
+        self.assertIn("ready_pr", inputs["available"])
+        self.assertIn("next_plan_task", inputs["available"])
+        self.assertEqual(inputs["unavailable"]["planned_item"], ["project_items: unconfigured"])
+        self.assertIsNone(digest["project"])
+        self.assertFalse(any(c[2].get("Authorization") is None for c in self.fake.calls))
+
+    def test_local_without_github_auth(self):
+        self.token.unlink()
+        code, digest, _ = self.run_collect("--fresh")
+        self.assertEqual(code, 3)
+        self.assertEqual(self.fake.calls, [])
+        inputs = digest["suggestion_inputs"]
+        self.assertEqual(inputs["available"], ["next_plan_task"])
+        self.assertEqual(set(inputs["unavailable"]), {"urgent_finding", "ready_pr", "planned_item", "hygiene_item"})
+
+    def test_repository_without_github_remote(self):
+        sh(["git", "remote", "remove", "origin"], self.main)
+        code, digest, err = self.run_collect("--fresh")
+        self.assertEqual(code, 3, err)
+        self.assertRegex(digest["repo"], r"^local/widgets-[0-9a-f]{6}$")
+        self.assertEqual(self.fake.calls, [], "no GitHub request without a GitHub remote")
+        for name in ("project_items", "open_prs", "workflow_warnings"):
+            self.assertEqual(digest["sources"][name]["status"], "unconfigured")
+        self.assertEqual(digest["sources"]["local_git"]["status"], "ok")
+        self.assertEqual(engcore.validate(json.loads(Path(digest["snapshot_path"]).read_text()), engcore.load_schema()), [])
+
+        result = subprocess.run([sys.executable, str(HANDOFF), "--repo", str(self.feature)], input="next: task 2",
+                                capture_output=True, text=True, env={**os.environ})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("/local__widgets-", result.stdout)
+
+    def test_non_github_remote_is_local_only(self):
+        sh(["git", "remote", "set-url", "origin", "git@gitlab.com:acme/widgets.git"], self.main)
+        code, digest, _ = self.run_collect("--fresh")
+        self.assertEqual(code, 3)
+        self.assertTrue(digest["repo"].startswith("local/"))
+        self.assertEqual(self.fake.calls, [])
+
+
 class ConfigAndOutputTest(RepoTestCase):
     def test_config_for_another_repo_is_fatal(self):
         self.write_config({"schema": "eng.config.v1", "repo": "acme/other"})

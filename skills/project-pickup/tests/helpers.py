@@ -91,6 +91,7 @@ class FakeGitHub:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict]] = []
+        self.kinds: list[str] = []  # "project", "prs" or "rest", one per call
         self.overrides: dict[str, object] = {}
         self.always_next_page = False
 
@@ -100,6 +101,7 @@ class FakeGitHub:
         body = json.loads(request.data) if request.data else {}
         self.calls.append((method, url, dict(request.header_items())))
         query = body.get("query", "")
+        self.kinds.append("project" if "query ProjectItems" in query else "prs" if "query OpenPrs" in query else "rest")
         for key, value in self.overrides.items():
             if key in url or key in query:
                 if callable(value):

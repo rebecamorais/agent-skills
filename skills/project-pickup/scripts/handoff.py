@@ -33,14 +33,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         root = Path(engcore.git(["rev-parse", "--show-toplevel"], args.repo.resolve()).strip())
-        repo = engcore.parse_github_remote(engcore.git(["remote", "get-url", "origin"], root))
+        _, repo, _ = engcore.repo_identity(root)
         branch = args.branch or engcore.git(["rev-parse", "--abbrev-ref", "HEAD"], root).strip()
         head = engcore.git(["rev-parse", "HEAD"], root).strip()
     except engcore.SourceError as error:
         print(f"ERROR: {error}. Run this from inside the repository's worktree.", file=sys.stderr)
-        return 1
-    if not repo:
-        print("ERROR: the 'origin' remote is not a github.com repository.", file=sys.stderr)
         return 1
     if branch == "HEAD":
         print("ERROR: detached HEAD; pass --branch <name>.", file=sys.stderr)

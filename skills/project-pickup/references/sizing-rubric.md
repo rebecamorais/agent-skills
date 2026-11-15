@@ -13,11 +13,13 @@ Sizes belong to **actions** ("plan task 3 of #177"), not to whole issues. They'r
 
 ## Candidates, in this order
 
-1. An **S1/S2** finding. If it can't be fixed in the available time, the action is "acknowledge it and write down what you know".
-2. The **next unchecked plan task** in the worktree being worked on (uncommitted files or commits ahead of base, not locked).
-3. A **PR ready for the user to merge**: checks `SUCCESS`, `MERGEABLE`, not draft. The action is to review it and decide, never "merge it".
-4. The **first plan task of the top Planned item** in `planned_next_up`. If it has no plan, the action is "write a short plan" (S, high energy) or a spike.
-5. **One small hygiene item** (an S4 finding), only when the user has little time or low energy.
+Each candidate has a kind (in brackets) and needs certain sources (`CANDIDATE_SOURCES` in `scripts/collect.py`). Consider only kinds listed in `digest.suggestion_inputs.available`. An unavailable kind is unknown, not empty.
+
+1. [`urgent_finding`] An **S1/S2** finding. If it can't be fixed in the available time, the action is "acknowledge it and write down what you know".
+2. [`next_plan_task`] The **next unchecked plan task** in the worktree being worked on (uncommitted files or commits ahead of base, not locked).
+3. [`ready_pr`] A **PR ready for the user to merge**: checks `SUCCESS`, `MERGEABLE`, not draft. The action is to review it and decide, never "merge it".
+4. [`planned_item`] The **first plan task of the top Planned item** in `planned_next_up`. If it has no plan, the action is "write a short plan" (S, high energy) or a spike.
+5. [`hygiene_item`] **One small hygiene item** (an S4 finding), only when the user has little time or low energy.
 
 S3 maintenance findings (for example a workflow warning about a missing token) are reported, **never** chosen as the default action. Credentials and automation are the user's decision.
 

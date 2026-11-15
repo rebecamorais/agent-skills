@@ -1,6 +1,6 @@
 # Engineering automation: decisions in force
 
-Short record of the decisions that govern the engineering-automation work in this repository. The full design and the Phase 0 validation live next to this file once they're committed (`design-v2.md`, `phase-0-validation.md`).
+Short record of the decisions that govern the engineering-automation work in this repository. It's self-contained: the earlier design drafts and the Phase 0 validation are kept outside the repository, and everything still in force is summarised here.
 
 ## Where things live (D0, D7)
 
@@ -8,6 +8,16 @@ Short record of the decisions that govern the engineering-automation work in thi
 - Claude Code–specific pieces (subagent definitions, hook examples) go in a separate integration directory, `integrations/claude-code/`, created when the first one is needed. Every skill must work without them.
 - A **consuming project** (for example RPGWorld) holds only its own config (`.eng.json`), its decision log and the workflow that calls the shared code, pinned to a commit of this repository.
 - Local runtime state: `~/.local/state/eng/<owner>__<name>/`. Credentials: `~/.config/eng/`. Neither is ever in a repository.
+
+## Extraction boundary for shared code
+
+`skills/project-pickup/scripts/engcore.py` is the candidate for sharing. It holds only skill-independent pieces: paths and private atomic writes, token files, the GraphQL mutation guard, the GET-only HTTP client with budgets and retries, pagination, read-only git, repository identity, the JSON Schema subset validator and the wording list. Anything that knows about pickup (operations, digest, findings, candidates) stays in `collect.py`.
+
+Rules:
+
+- `engcore.py` never imports skill code and never gains skill-specific logic.
+- Nothing is extracted until a **second skill** needs it. Then the choice is between a shared toolkit that each skill requires (installed separately) and a vendored copy of `engcore.py` per skill, checked by a test that the copies are identical. Skills installed one at a time can't reach each other's `scripts/`.
+- Any change to the guards (GraphQL, HTTP, git) needs a test that fails without it.
 
 ## Decisions
 

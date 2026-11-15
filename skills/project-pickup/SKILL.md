@@ -22,7 +22,8 @@ It never changes GitHub, git, the Project, settings or secrets. It doesn't use s
 
 - `python3` ≥ 3.10 and `git` on `PATH`.
 - A **read-only** GitHub token in `~/.config/eng/read.token` (mode 600). If the Project can't be read with it, an extra token in `~/.config/eng/read-project.token`. If neither exists, the collector still reads local git and reports GitHub as unknown. Don't create, request or read tokens yourself: point them to `docs.md`.
-- A config file for the repository: `<repo>/.eng.json` or `~/.config/eng/repos/<owner>__<name>.json` (format in `docs.md`). Without it, the Project and workflow sources show as `unconfigured`.
+- Optional: a config file for the repository, `<repo>/.eng.json` or `~/.config/eng/repos/<owner>__<name>.json` (format in `docs.md`). Without it, the Project and workflow sources show as `unconfigured`, and PRs and local work still work.
+- Works in three setups: GitHub repository with a Project, with issues/PRs only, or local only (no token, or no github.com `origin`). In local-only mode, the repository ID is `local/<folder>-<hash>`.
 
 ## Rules: never do these
 
@@ -62,7 +63,7 @@ At most 8 lines, facts only:
 - **PRs:** anything ready for the user (checks `SUCCESS`, `MERGEABLE`, not draft), or with failing checks or conflicts.
 - **Findings:** S1/S2 first. Mention S3 maintenance items in one line. Skip S4 hygiene unless nothing else is going on.
 - **Couldn't check:** every source in `digest.unknown`.
-- If `possible_unexpected_exit` is true for a worktree, say neutrally: "It looks like the last session on `<branch>` ended without a handoff." List its `dirty_files`. If `session.resume_command` is set, offer it as an option ("to reopen that conversation: `…`"). Don't stash, commit or reset.
+- If `possible_unexpected_exit` is true for a worktree, say neutrally: "It looks like the last session on `<branch>` ended without a handoff." List its `dirty_files`. If `session.resume_command` is set, offer it as an option, without promising it works: "if that conversation is still available: `…`". With no `session` (other agents, or history cleaned up), rely on the files and commits alone. Don't stash, commit or reset.
 
 Plan checkboxes are often not ticked while work happens. If `ahead_base` is high but `plan.done` is 0, say the plan doesn't show progress and look at `last_commit_subject` before assuming nothing was done.
 
@@ -77,13 +78,15 @@ Don't ask anything else unless the choice truly depends on it. For example, whic
 
 ### 4. Suggest exactly one action
 
-Use [references/sizing-rubric.md](references/sizing-rubric.md). In short: build candidates in this order:
+Use [references/sizing-rubric.md](references/sizing-rubric.md). In short: build candidates in this order, **only from kinds listed in `digest.suggestion_inputs.available`**:
 
-1. an S1/S2 finding,
-2. the next plan task in the active worktree,
-3. a PR ready for the user to merge,
-4. the first plan task of the top Planned item,
-5. one small hygiene item.
+1. `urgent_finding`: an S1/S2 finding,
+2. `next_plan_task`: the next plan task in the active worktree,
+3. `ready_pr`: a PR ready for the user to merge,
+4. `planned_item`: the first plan task of the top Planned item,
+5. `hygiene_item`: one small hygiene item.
+
+A kind under `suggestion_inputs.unavailable` is missing its data. It is **unknown, not empty**: never suggest it, and never conclude that there's "nothing there". If something is unavailable, add a `Based on:` line to the answer naming what couldn't be checked. If nothing is available, say so and suggest fixing the first error from "Couldn't check".
 
 Keep a candidate only if effort + `ramp_up_min` ≤ 70% of the available time, and its energy is no more than the user has. Prefer continuity on ties. When uncertainty is high and there's less than 1 hour, turn the candidate into a spike: "30 min: investigate X, write down a conclusion".
 
@@ -96,6 +99,7 @@ First step: <the first command or file to open>
 Done when: <observable result>
 Safe stop point: <where the user can pause without losing context>
 Size: <XS|S|M> · uncertainty <low|medium|high> · energy <low|normal|high> · ramp-up +<n> min
+Based on: <only when something was unavailable, e.g. "local git only; couldn't check PRs or the Project">
 ```
 
 Never suggest an L action. Split it and suggest its first part.

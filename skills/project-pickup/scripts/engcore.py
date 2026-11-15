@@ -15,6 +15,7 @@ Standard library only.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -417,6 +418,25 @@ def git_ok(args: list[str], cwd: Path) -> int:
 
 
 _REMOTE = re.compile(r"^(?:git@github\.com:|ssh://git@github\.com/|https://github\.com/)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$")
+
+
+def repo_identity(path: Path) -> tuple[Path, str, bool]:
+    """Return (main worktree root, repo id, is_github) for the repository containing path.
+
+    A github.com 'origin' gives 'owner/name'. Without one (no remote, or another host) the
+    repository still works in local-only mode, as 'local/<folder>-<hash of its path>'.
+    Raises SourceError if path is not inside a git repository.
+    """
+    common = Path(git(["rev-parse", "--path-format=absolute", "--git-common-dir"], path).strip())
+    main_root = common.parent if common.name == ".git" else common
+    try:
+        repo = parse_github_remote(git(["remote", "get-url", "origin"], path))
+    except SourceError:
+        repo = None
+    if repo:
+        return main_root, repo, True
+    digest = hashlib.sha256(str(main_root).encode()).hexdigest()[:6]
+    return main_root, f"local/{safe_name(main_root.name)[:60]}-{digest}", False
 
 
 def parse_github_remote(url: str) -> str | None:

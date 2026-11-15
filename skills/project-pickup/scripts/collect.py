@@ -122,21 +122,14 @@ def claude_project_dir_name(path: str) -> str:
 # =========================================================================== repo + config
 
 
-def resolve_repo(path: Path) -> tuple[Path, str]:
-    """Return (main worktree root, 'owner/name') for the repository containing path."""
+def resolve_repo(path: Path) -> tuple[Path, str, bool]:
+    """Return (main worktree root, repo id, is_github). See engcore.repo_identity."""
     if not path.is_dir():
         raise Fatal(f"{path} is not a directory")
     try:
-        common = git(["rev-parse", "--path-format=absolute", "--git-common-dir"], path).strip()
-        url = git(["remote", "get-url", "origin"], path).strip()
+        return engcore.repo_identity(path)
     except SourceError as error:
-        raise Fatal(f"{path} is not a git repository with an 'origin' remote ({error})") from None
-    common_path = Path(common)
-    main_root = common_path.parent if common_path.name == ".git" else common_path
-    repo = engcore.parse_github_remote(url)
-    if not repo:
-        raise Fatal("the 'origin' remote is not a github.com repository")
-    return main_root, repo
+        raise Fatal(f"{path} is not inside a git repository ({error})") from None
 
 
 def find_config(explicit: Path | None, main_root: Path, repo: str) -> Path | None:
@@ -180,10 +173,11 @@ def load_config(path: Path | None, repo: str) -> dict[str, Any]:
 
 
 class Context:
-    def __init__(self, args: argparse.Namespace, main_root: Path, repo: str, config: dict[str, Any]) -> None:
+    def __init__(self, args: argparse.Namespace, main_root: Path, repo: str, config: dict[str, Any], github: bool = True) -> None:
         self.args = args
         self.main_root = main_root
         self.repo = repo
+        self.github = github
         self.owner, self.name = repo.split("/")
         self.config = config
         profile = PROFILES[args.profile]
@@ -565,6 +559,8 @@ def op_local_context(ctx: Context) -> tuple[str, Any, dict[str, Any]]:
     return ("partial" if partial else "ok"), {"worktrees": entries}, {"count": len(entries)}
 
 
+GITHUB_OPS = {"project_items", "open_prs", "workflow_warnings"}
+
 OPS: dict[str, Callable[[Context], tuple[str, Any, dict[str, Any]]]] = {
     "project_items": op_project_items,
     "open_prs": op_open_prs,
@@ -721,6 +717,29 @@ def summarise_project(ctx: Context) -> dict[str, Any] | None:
     }
 
 
+# Each kind of next-action candidate and the sources it needs. A candidate whose sources
+# aren't all ok must not be suggested: missing data is unknown, never "nothing there".
+CANDIDATE_SOURCES = {
+    "urgent_finding": ["open_prs", "workflow_warnings"],
+    "next_plan_task": ["local_git", "local_context"],
+    "ready_pr": ["open_prs"],
+    "planned_item": ["project_items"],
+    "hygiene_item": ["project_items"],
+}
+
+
+def suggestion_inputs(ctx: Context) -> dict[str, Any]:
+    available, unavailable = [], {}
+    for kind, sources in CANDIDATE_SOURCES.items():
+        missing = [f"{s}: {ctx.results.get(s, {}).get('status', 'not run')}" for s in sources
+                   if ctx.results.get(s, {}).get("status") != "ok"]
+        if missing:
+            unavailable[kind] = missing
+        else:
+            available.append(kind)
+    return {"available": available, "unavailable": unavailable}
+
+
 def build_digest(ctx: Context, snapshot_path: Path) -> dict[str, Any]:
     now = now_utc()
     prs = data_of(ctx, "open_prs").get("prs", [])
@@ -731,6 +750,7 @@ def build_digest(ctx: Context, snapshot_path: Path) -> dict[str, Any]:
         "snapshot_path": str(snapshot_path),
         "sources": {name: {k: v for k, v in r.items() if k != "data"} for name, r in ctx.results.items()},
         "unknown": sorted(name for name, r in ctx.results.items() if r["status"] != "ok"),
+        "suggestion_inputs": suggestion_inputs(ctx),
         "base": data_of(ctx, "local_git").get("base"),
         "project": summarise_project(ctx),
         "prs": [
@@ -778,7 +798,10 @@ def run_ops(ctx: Context) -> None:
     for name in PROFILES[ctx.args.profile]["ops"]:
         started = time.monotonic()
         try:
-            status, data, extra = OPS[name](ctx)
+            if name in GITHUB_OPS and not ctx.github:
+                status, data, extra = "unconfigured", None, {"error": "no github.com 'origin' remote; local sources only"}
+            else:
+                status, data, extra = OPS[name](ctx)
         except engcore.BudgetExceeded as error:
             status, data, extra = "skipped", None, {"error": str(error)}
         except SourceError as error:
@@ -817,9 +840,9 @@ def exit_code(results: dict[str, dict[str, Any]]) -> int:
 
 
 def collect(args: argparse.Namespace) -> int:
-    main_root, repo = resolve_repo(args.repo.resolve())
+    main_root, repo, github = resolve_repo(args.repo.resolve())
     config = load_config(find_config(args.config, main_root, repo), repo)
-    ctx = Context(args, main_root, repo, config)
+    ctx = Context(args, main_root, repo, config, github)
     engcore.vet_all()
 
     if args.out:

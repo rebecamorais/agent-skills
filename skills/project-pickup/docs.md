@@ -5,8 +5,15 @@ For a solo maintainer coming back to a repository after hours, days or months. I
 ## Requirements
 
 - Python 3.10+ (standard library only) and git
-- A read-only GitHub token file (below)
-- A small config file for each repository (below)
+- Optional: a read-only GitHub token file and a small per-repository config (below)
+
+It works in three setups. Missing sources are always reported as "couldn't check", never as "nothing there":
+
+| Setup | What it reads |
+| --- | --- |
+| GitHub repo with a Project, token and config | Project, PRs, workflow warnings, local work |
+| GitHub repo without a Project (no `project` in the config) | PRs, workflow warnings if configured, local work |
+| Local only (no token, or no github.com `origin`) | worktrees, plans, handoffs. The repository ID is `local/<folder>-<hash>`. |
 
 ## Installation
 
